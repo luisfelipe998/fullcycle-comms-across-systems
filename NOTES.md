@@ -129,11 +129,12 @@ gRPC guide: https://grpc.io/
 - Create `ListCategories` and `GetCategory` messages
 
 ## Class 17 Streams with gRPC
-- Create stream of protofile
+- Create stream on protofile
 - Implement `CreateCategoryStream` to receive any data and process all at once
 - Start evans `evans -r repl` and `call CreateCategoryStream`
 - Press ctrl + d to close the stream
 
 ## Class 18 Bidirectional streams
+- Create bidirectional stream on protofile
+- Very similar to regular streams
 
--
