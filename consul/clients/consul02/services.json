@@ -1,0 +1,12 @@
+{
+    "service": {
+        "id": "nginx2",
+        "name": "nginx",
+        "tags": [
+            "nginx",
+            "web",
+            "proxy"
+        ],
+        "port": 80
+    }
+}

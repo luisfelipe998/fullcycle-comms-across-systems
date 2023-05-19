@@ -243,4 +243,131 @@ query queryCourses {
 ```
 - Notice how the category was retrieved within the course
 
+## Service Discovery & Consul
+
+[Consul docs](https://developer.hashicorp.com/consul/docs/architecture)
+
+## Class 30 The context
+- Useful for communication between microservices: know the callee machine (DNS, IP);
+- Useful for managing scaling callee systems
+- Questions:
+  - which machineto call?
+  - on which port?
+  - need to know IP addr?
+  - how to know healthiness?
+  - how to check permissions?
+- Service discovery: 
+  - discover available machine from a specific service
+  - segmentation of machines for security
+  - DNS resolution
+  - health checking
+  - permissions management
+
+## Class 31 Consul overview
+- Service discovery
+- Service segmentation
+- Load balancer on layer 7
+- Key/Value configuration
+- Open-source
+
+## Class 32 Service registry
+- Uses a centralized service registry to all applications plugged in
+- Agent/Server architecture
+- Health check is running on the agent locally (closer to the app)
+- Gossip protocol
+- Consul has a DNS server to call the underlying application instances
+
+## Class 33 Health check and multicloud
+- Healthcheck -> Consul agent: local configuration to monitor the application locally. Informs the consul server if the app stops responding.
+- Multicloud: consul's agents may work across different data centers (even different cloud providers)
+
+## Class 34 Agent, Client and Server
+- Agent: process (daemon) runing on every cluster node. Client mode or Server mode
+- Client: register services locally (with config file), health check, forward information and configs from the services to the server
+- Server: Keep the cluster state, register the services, membership (who is client and who is server), query returns (DNS, API), information exchange between datacenters, etc.
+
+## Class 35 Starting a consul agent
+- Create docker-compose.yml
+- Run `docker compose up -d`
+- Enter on the container: `docker exec -it consul01 sh`
+- Inside the container, specify mode of consul execution: `consul agent -dev` for agent (server)
+- Run `consul members` to check members inside the mesh
+- Accessing consul through API: `curl localhost:8500/v1/catalog/nodes`
+- Use consul's datacenter concept to create the mesh. Communication across datacenters is also possible.
+- Accessing consul through DNS: Install `apk -u add bind-tools` & Run `dig @localhost -p 8600 consul01.node.consul` optional +short
+
+## Class 36 Create consul cluster
+- Create a cluster with 3 servers
+- Modify docker-compose.yml to create 3 services. 
+- Run `docker compose up -d`
+- Objective is make all 3 agents communicate with each other
+- Run the agent in server mode: 
+  - enter container: `docker exec -it consulserver01 sh`
+  - Check ip `ifconfig`
+  - Run `mkdir /etc/consul.d` & `mkdir /var/lib/consul`
+  - Run `consul agent -server -bootstrap-expect=3 -node=consulserver01 -bind=172.19.0.2 -data-dir=/var/lib/consul -config-dir=/etc/consul.d`
+  - Repeat for the other 2 server agents
+- Now we have 3 consuls running separatedly. Run `consul join 172.19.0.2` (ip from the other servers) to connect them
+- Rerun `consul members` to see them connected.
+
+## Class 37 Creating the first client
+- Create folder /clients/consul01
+- Adjust docker-compose.yml to add consulclient01;
+- Start docker compose
+- run `docker exec -it consulclient01 sh`
+  - inside the container: `ifconfig` & `consul agent -bind=172.19.0.4 -data-dir=/var/lib/consul -config-dir=/etc/consul.d` & `consul join 172.19.0.2`
+  - now the client is inside the consul cluster
+
+## Class 38 Register services
+- Create file `services.json` under `/clients/consul01` to register a new service (nginx)
+- Registering a service is different from creating a service
+- Inside `consulclient01` container, run `consul reload` to register the service
+- The servers already know about the new registered client: `apk -U add bind-tools` -> `dig @localhost -p 8600 nginx.service.consul` -> see the service. Go to one server and run the same commands. Check the same result.
+- We can create another nginx service and resolve itself with the IPs
+- We can also check the service through the API: `curl localhost:8500/v1/catalog/services`
+- Find which consul node the nginx service is registered: `consul catalog nodes -service nginx`
+
+## Class 39 Register 2nd service with retry join
+- Add a consulclient02 to docker compose file;
+- Rerun `docker compose up -d` & `docker exec it consulclient02 sh`
+- Improve previous command with -retry-join: `consul agent -bind=172.19.0.6 -data-dir=/var/lib/consul -config-dir=/etc/consul.d -retry-join=172.19.0.2 --retry-join=172.19.0.3`
+- Run `apk -U add bind-tools` -> `dig @localhost -p 8600 nginx.service.consul` and check the 2 services available.
+- Note how the command points to localhost. It accesses the local registry of the client to access the information about the services connected to the network
+
+## Class 40 Implementing Checks
+- Add checks to verify if the service is really up and running, removing them from the service (machine IP) discovery if not.
+- Checks: script, http, tcp, TTL, Docker, gRPC, etc;
+- Add http check on `services.json` on `/clients/consul01`,
+- Run `consul reload` to apply the change;
+- Notice that the check is returning a critical status for the check and the IP discovery doesn't return the IP of the faulty service anymore; (`dig @localhost -p 8600 nginx.service.consul`);
+- Install and run nginx: `apk add ngnix` & `nginx`;
+- Notice how the check is now synced and the IP is found on IP discovery service from consul
+
+## Class 41 Syncronizing servers with file
+- Create `servers/server01` and create `server.json` to facitilate server creation;
+- Adjust `docker-compose` to use the file through the volume and rerun `docker compose up -d`;
+- Enter the server container and run `consul agent -config-dir=/etc/consul.d` to see all synced;
+- Replicate config to other 2 servers and rerun previous command to other 2 servers;
+
+## Class 42 Consul Encryption
+- Adjust `server.json` file to include encryption with `encrypt` param
+- Generate encryption key: `consul keygen` and populate the param on all servers to properly communicate
+- Redeploy consul servers `docker compose up -d` & `consult agent -config-dir=/etc/consul.d`
+- If the server config doesn't have the encryption config, it will fail to join the consul datacenter.
+- Check the data being transferred encrypted on the container: `apk add tcpdump` & `tcpdump -i eth0 -an port 8301 -A`
+
+## Class 43 Consul UI
+- Enable consul UI through CLI command: `consult agent -config-dir=/etc/consul.d -ui -client_addr=0.0.0.0`
+- Or edit server config file with:
+```
+  "client_addr": "0.0.0.0",
+  "ui_config":{
+    "enabled":true
+  }
+```
+- Expose port 8500 from server01 on docker-compose.yml file
+- Redeploy agent: `consult agent -config-dir=/etc/consul.d`
+- access: `localhost:8500` to see UI
+- Service Discovery, Service Mesh and ACL available to inspect on consul UI
+- For production: 3 servers; encryption to join the DC; and mTLS between agents
 
